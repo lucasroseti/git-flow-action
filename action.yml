@@ -1,0 +1,41 @@
+name: 'git flow action'
+description: 'Github action to improve git flow usage'
+branding:
+  icon: 'upload-cloud'
+  color: 'blue'
+author: 'Lucas M Cardoso'
+inputs:
+  github_token:
+    description: 'The github_token'
+    required: true
+  master_branch:
+    description: 'The master branch'
+    required: true
+    default: 'main'
+  development_branch:
+    description: 'The development branch'
+    required: true
+    default: 'develop'
+  feature_branch_prefix:
+    description: 'The feature_branch_prefix token'
+    required: true
+    default: 'feature/'
+  bugfix_branch_prefix:
+    description: 'The bugfix_branch_prefix token'
+    required: true
+    default: 'bugfix/'
+  release_branch_prefix:
+    description: 'The release_branch_prefix token'
+    required: true
+    default: 'release/'
+  hotfix_branch_prefix:
+    description: 'The hotfix_branch_prefix token'
+    required: true
+    default: 'hotfix/'
+  tag_prefix:
+    description: 'The tag_prefix token'
+    required: true
+    default: 'v'
+runs:
+  using: 'node16'
+  main: 'dist/index.js'

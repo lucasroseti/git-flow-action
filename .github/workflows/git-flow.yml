@@ -1,0 +1,19 @@
+name: Gitflow CI
+
+on: 
+  pull_request_review:
+    branches: ['main', 'development']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Run Git Flow
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run git flow process
+        uses: ./
+        id: git-flow
+        with:
+          github_token: ${{ secrets.ADMIN_TOKEN }}
+          master_branch: 'main'
+          development_branch: 'development'
