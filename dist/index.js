@@ -32822,14 +32822,14 @@ class Release {
             }
             // Update version files
             yield this.updateVersionFiles(branches, prefixes);
-            // Build the project
-            yield this.buildProject(version, projectName, branches);
             // Create or update changelog
             yield this.createOrUpdateChangelog(version, branches.current);
             // Merge branches
             const sha = yield this.merge(branches);
             // Create tag
             yield this.createTag({ branches, prefixes, sha });
+            // Build the project
+            yield this.buildProject(version, projectName, branches);
             // Create GitHub release
             yield this.createGitHubRelease(version, projectName);
             // Delete release branch (after everything is done)
