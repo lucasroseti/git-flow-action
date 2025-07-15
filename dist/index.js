@@ -32496,7 +32496,7 @@ class GitHubService {
             try {
                 const response = yield instance.repos.getContent(Object.assign(Object.assign({}, this.client.context.repo), { path: filePath, ref: branch }));
                 if ('content' in response.data) {
-                    return atob(response.data.content);
+                    return Buffer.from(response.data.content, 'base64').toString('utf8');
                 }
                 throw new Error(`File ${filePath} not found or is not a file`);
             }
@@ -32510,7 +32510,7 @@ class GitHubService {
         return __awaiter(this, void 0, void 0, function* () {
             const instance = this.getOctokitInstance();
             try {
-                yield instance.repos.createOrUpdateFileContents(Object.assign(Object.assign({}, this.client.context.repo), { path: filePath, message, content: btoa(content), branch,
+                yield instance.repos.createOrUpdateFileContents(Object.assign(Object.assign({}, this.client.context.repo), { path: filePath, message, content: Buffer.from(content, 'utf8').toString('base64'), branch,
                     sha }));
                 this.core.info(`Successfully updated ${filePath}`);
             }
