@@ -32861,10 +32861,9 @@ class Release {
             const version = this.versionManager.extractVersionFromBranch(branches.current, prefixes.release);
             this.github.getCore().info(`Updating version files to: ${version}`);
             try {
-                yield Promise.all([
-                    this.updateVersionFile('package.json', version, branches.current, true),
-                    this.updateVersionFile('mta.yaml', version, branches.current, false),
-                ]);
+                // Update files sequentially to avoid SHA conflicts
+                yield this.updateVersionFile('package.json', version, branches.current, true);
+                yield this.updateVersionFile('mta.yaml', version, branches.current, false);
                 this.github.getCore().info('Version files updated successfully');
             }
             catch (error) {
