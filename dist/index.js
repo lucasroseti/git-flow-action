@@ -32826,14 +32826,14 @@ class Release {
             yield this.createOrUpdateChangelog(version, branches.current);
             // Merge branches
             const sha = yield this.merge(branches);
-            // Create tag
-            yield this.createTag({ branches, prefixes, sha });
-            // Build the project
-            yield this.buildProject(version, projectName, branches);
-            // Create GitHub release
-            yield this.createGitHubRelease(version, projectName);
-            // Delete release branch (after everything is done)
-            yield this.github.delete(branches.current);
+            // // Create tag
+            // await this.createTag({ branches, prefixes, sha });
+            // // Build the project
+            // await this.buildProject(version, projectName, branches);
+            // // Create GitHub release
+            // await this.createGitHubRelease(version, projectName);
+            // // Delete release branch (after everything is done)
+            // await this.github.delete(branches.current);
             return sha;
         });
     }
@@ -33027,12 +33027,11 @@ class Release {
 
 This release includes:
 
-${prInfo.body || 'Release updates and improvements'}
+${prInfo.body || '- Release updates and improvements'}
 
 ${prInfo.url ? `[🔎 See PR](${prInfo.url})` : ''}
 
 ---
-
 `;
                 // Debug: Log changelog entry
                 this.github.getCore().info(`Changelog entry preview: ${newEntry.substring(0, 200)}...`);
@@ -33049,20 +33048,33 @@ ${prInfo.url ? `[🔎 See PR](${prInfo.url})` : ''}
                 // Create new changelog content
                 let newContent = '';
                 if (existingContent.includes('# Changelog')) {
-                    // Replace existing changelog
+                    // Update existing changelog - find where to insert new entry
                     const lines = existingContent.split('\n');
-                    const headerEndIndex = lines.findIndex((line, index) => index > 0 && line.trim() !== '' && !line.startsWith('#'));
-                    const header = lines.slice(0, headerEndIndex > 0 ? headerEndIndex : 4).join('\n');
-                    const existingEntries = lines.slice(headerEndIndex > 0 ? headerEndIndex : 4).join('\n');
-                    newContent = `${header}\n\n${newEntry}${existingEntries}`;
+                    const changelogTitleIndex = lines.findIndex(line => line.trim().startsWith('# Changelog'));
+                    if (changelogTitleIndex >= 0) {
+                        // Find the first version entry after the changelog title
+                        const firstVersionIndex = lines.findIndex((line, index) => index > changelogTitleIndex && line.trim().startsWith('# V'));
+                        if (firstVersionIndex >= 0) {
+                            // Insert new entry before existing versions
+                            const beforeVersions = lines.slice(0, firstVersionIndex);
+                            const existingVersions = lines.slice(firstVersionIndex);
+                            const beforePart = beforeVersions.join('\n');
+                            const existingPart = existingVersions.join('\n');
+                            newContent = `${beforePart}\n${newEntry}\n${existingPart}`;
+                        }
+                        else {
+                            // No existing versions, append after changelog header
+                            newContent = `${existingContent}\n\n${newEntry}`;
+                        }
+                    }
+                    else {
+                        // Fallback - just prepend new entry
+                        newContent = `# Changelog\n\n${newEntry}\n${existingContent}`;
+                    }
                 }
                 else {
                     // Create new changelog
-                    newContent = `# Changelog
-
-All notable changes to this project will be documented in this file.
-
-${newEntry}${existingContent}`;
+                    newContent = `# Changelog\n\n${newEntry}\n${existingContent}`;
                 }
                 // Update changelog using GitHub API (same approach as other files)
                 try {
