@@ -32858,13 +32858,13 @@ class Release {
     }
     updateVersionFiles(branches, prefixes) {
         return __awaiter(this, void 0, void 0, function* () {
+            const version = this.versionManager.extractVersionFromBranch(branches.current, prefixes.release);
+            this.github.getCore().info(`Updating version files to: ${version}`);
             try {
-                const version = this.versionManager.extractVersionFromBranch(branches.current, prefixes.release);
-                this.github.getCore().info(`Updating version files to: ${version}`);
-                // Update package.json
-                yield this.updatePackageJson(version, branches.current);
-                // Update mta.yaml if it exists (before building)
-                yield this.updateMtaYaml(version, branches.current);
+                yield Promise.all([
+                    this.updateVersionFile('package.json', version, branches.current, true),
+                    this.updateVersionFile('mta.yaml', version, branches.current, false),
+                ]);
                 this.github.getCore().info('Version files updated successfully');
             }
             catch (error) {
@@ -32873,37 +32873,33 @@ class Release {
             }
         });
     }
-    updatePackageJson(version, branch) {
+    updateVersionFile(fileName, version, branch, isRequired) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                const content = yield this.github.getFileContent('package.json', branch);
-                const updatedContent = this.versionManager.updatePackageJsonVersion(content, version);
-                // Get current file SHA for updating
-                const fileResponse = yield this.getFileSha('package.json', branch);
-                yield this.github.updateFile('package.json', updatedContent, `chore: update package.json version to ${version}`, branch, fileResponse);
-                this.github.getCore().info(`package.json version updated to: ${version}`);
+                const content = yield this.github.getFileContent(fileName, branch);
+                const updatedContent = this.getUpdatedFileContent(fileName, content, version);
+                const fileSha = yield this.getFileSha(fileName, branch);
+                yield this.github.updateFile(fileName, updatedContent, `chore: update ${fileName} version to ${version}`, branch, fileSha);
+                this.github.getCore().info(`${fileName} version updated to: ${version}`);
             }
             catch (error) {
-                this.github.getCore().info(`Error updating package.json: ${error}`);
-                throw error;
+                const errorMessage = `Error updating ${fileName}: ${error}`;
+                this.github.getCore().info(errorMessage);
+                if (isRequired) {
+                    throw error;
+                }
             }
         });
     }
-    updateMtaYaml(version, branch) {
-        return __awaiter(this, void 0, void 0, function* () {
-            try {
-                const content = yield this.github.getFileContent('mta.yaml', branch);
-                const updatedContent = this.versionManager.updateMtaYamlVersion(content, version);
-                // Get current file SHA for updating
-                const fileResponse = yield this.getFileSha('mta.yaml', branch);
-                yield this.github.updateFile('mta.yaml', updatedContent, `chore: update mta.yaml version to ${version}`, branch, fileResponse);
-                this.github.getCore().info(`mta.yaml version updated to: ${version}`);
-            }
-            catch (error) {
-                this.github.getCore().info(`mta.yaml file not found or error updating: ${error}`);
-                // Don't throw error for mta.yaml as it might not exist in all projects
-            }
-        });
+    getUpdatedFileContent(fileName, content, version) {
+        switch (fileName) {
+            case 'package.json':
+                return this.versionManager.updatePackageJsonVersion(content, version);
+            case 'mta.yaml':
+                return this.versionManager.updateMtaYamlVersion(content, version);
+            default:
+                throw new Error(`Unsupported file type: ${fileName}`);
+        }
     }
     installDependencies() {
         return __awaiter(this, void 0, void 0, function* () {
