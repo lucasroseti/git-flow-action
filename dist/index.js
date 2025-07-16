@@ -33145,9 +33145,10 @@ class CreateReleaseService {
             try {
                 this.logReleaseStart(config.version);
                 const prInfo = yield this.getPRInformation(config.version);
-                const releaseData = yield this.createRelease(config, prInfo);
-                yield this.uploadReleaseAsset(releaseData.id, config.releaseFilePath);
-                this.logReleaseSuccess(releaseData.html_url);
+                const releaseResponse = yield this.createRelease(config, prInfo);
+                this.logReleaseCreated(releaseResponse.data.id, releaseResponse.data.tag_name);
+                yield this.uploadReleaseAsset(releaseResponse.data.id, config.releaseFilePath);
+                this.logReleaseSuccess(releaseResponse.data.html_url);
             }
             catch (error) {
                 this.handleReleaseError(error);
@@ -33221,6 +33222,10 @@ ${prLink}`;
     }
     uploadReleaseAsset(releaseId, releaseFilePath) {
         return __awaiter(this, void 0, void 0, function* () {
+            if (!releaseId || releaseId <= 0) {
+                this.logInvalidReleaseId(releaseId);
+                return;
+            }
             const asset = this.prepareAsset(releaseFilePath);
             if (!asset.exists) {
                 this.logAssetNotFound(asset.filePath);
@@ -33261,6 +33266,9 @@ ${prLink}`;
     logReleaseStart(version) {
         this.github.getCore().info(`Creating GitHub release for version ${version}`);
     }
+    logReleaseCreated(releaseId, tagName) {
+        this.github.getCore().info(`Release created with ID: ${releaseId}, Tag: ${tagName}`);
+    }
     logReleaseSuccess(htmlUrl) {
         this.github.getCore().info(`GitHub release created successfully: ${htmlUrl}`);
     }
@@ -33269,6 +33277,9 @@ ${prLink}`;
     }
     logAssetUploadSuccess(fileName) {
         this.github.getCore().info(`Asset uploaded: ${fileName}`);
+    }
+    logInvalidReleaseId(releaseId) {
+        this.github.getCore().info(`Invalid release ID: ${releaseId}. Cannot upload asset.`);
     }
     handleReleaseError(error) {
         this.github.getCore().info(`Error creating GitHub release: ${error}`);
