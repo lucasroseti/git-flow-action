@@ -32800,9 +32800,9 @@ class Release {
             this.githubUtilsService.logInfo(`Project name: ${projectName}`);
             yield this.versionManager.updateVersionFiles(branches, version);
             yield this.changelogService.createOrUpdateChangelog(version, branches.current);
-            const releaseFilePath = yield this.projectManager.buildProject(version, projectName);
             const sha = yield this.merge(branches);
             yield this.githubUtilsService.createTag({ branches, prefixes, sha });
+            const releaseFilePath = yield this.projectManager.buildProject(version, projectName);
             const releaseConfig = {
                 version,
                 projectName,
