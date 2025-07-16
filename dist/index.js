@@ -32773,6 +32773,7 @@ const changelog_1 = __nccwpck_require__(6974);
 const project_manager_1 = __nccwpck_require__(4610);
 const version_manager_1 = __nccwpck_require__(7810);
 const create_release_1 = __nccwpck_require__(1539);
+const github_1 = __nccwpck_require__(4907);
 class Release {
     constructor(github) {
         this.github = github;
@@ -32780,6 +32781,7 @@ class Release {
         this.projectManager = new project_manager_1.ProjectManagerService(github);
         this.versionManager = new version_manager_1.VersionManagerService(github);
         this.createReleaseService = new create_release_1.CreateReleaseService(github);
+        this.githubUtilsService = new github_1.GitHubUtilsService(github);
     }
     test() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -32790,17 +32792,17 @@ class Release {
     }
     handle() {
         return __awaiter(this, void 0, void 0, function* () {
-            this.github.getCore().info('RELEASE HANDLER');
+            this.githubUtilsService.logInfo('RELEASE HANDLER');
             const branches = yield this.github.getBranches();
             const prefixes = this.github.getPrefixes();
             const version = this.versionManager.extractVersionFromBranch(branches.current, prefixes.release);
             const projectName = this.projectManager.getProjectName();
-            this.github.getCore().info(`Project name: ${projectName}`);
+            this.githubUtilsService.logInfo(`Project name: ${projectName}`);
             yield this.versionManager.updateVersionFiles(branches, version);
             yield this.changelogService.createOrUpdateChangelog(version, branches.current);
-            const sha = yield this.merge(branches);
-            yield this.createTag({ branches, prefixes, sha });
             const releaseFilePath = yield this.projectManager.buildProject(version, projectName);
+            const sha = yield this.merge(branches);
+            yield this.githubUtilsService.createTag({ branches, prefixes, sha });
             const releaseConfig = {
                 version,
                 projectName,
@@ -32818,18 +32820,6 @@ class Release {
             const sha = yield this.github.merge(branches.current, branches.main);
             return sha;
         });
-    }
-    createTag(params) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const tag = this.getTagName(params.branches.current, params.prefixes.release, params.prefixes.tag);
-            this.github.getCore().info(`SHA -------> ${params.sha}`);
-            this.github.getCore().info(`TAG -------> ${tag}`);
-            yield this.github.createTag(tag, params.sha);
-        });
-    }
-    getTagName(currentBranch, releasePrefix, tagPrefix) {
-        const branchName = currentBranch.split(releasePrefix).join('');
-        return `${tagPrefix}${branchName}`;
     }
 }
 exports.Release = Release;
@@ -32871,7 +32861,7 @@ exports.GitFlowService = GitFlowService;
 /***/ }),
 
 /***/ 6974:
-/***/ (function(__unused_webpack_module, exports) {
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
 
@@ -32886,7 +32876,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ChangelogService = void 0;
-// Constants
+const github_1 = __nccwpck_require__(4907);
 const CHANGELOG_FILENAME = 'CHANGELOG.md';
 const CHANGELOG_HEADER = '# Changelog';
 const VERSION_PREFIX = '# V';
@@ -32895,17 +32885,18 @@ const DEFAULT_RELEASE_MESSAGE = '- Release updates and improvements';
 class ChangelogService {
     constructor(github) {
         this.github = github;
+        this.githubUtilsService = new github_1.GitHubUtilsService(github);
     }
     createOrUpdateChangelog(version, branch) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                this.logInfo(`Creating/updating changelog for version: ${version}`);
-                const prInfo = yield this.getPRInfo(branch);
+                this.githubUtilsService.logInfo(`Creating/updating changelog for version: ${version}`);
+                const prInfo = yield this.githubUtilsService.getPRInfo(branch);
                 const changelogEntry = this.createChangelogEntry(version, prInfo);
                 const existingContent = yield this.getExistingChangelogContent(branch);
                 const updatedContent = this.mergeChangelogContent(existingContent, changelogEntry);
                 yield this.saveChangelogToRepository(updatedContent, version, branch);
-                this.logInfo('Changelog updated successfully');
+                this.githubUtilsService.logInfo('Changelog updated successfully');
             }
             catch (error) {
                 this.handleChangelogError(error);
@@ -32930,11 +32921,11 @@ ${SEPARATOR}
         return __awaiter(this, void 0, void 0, function* () {
             try {
                 const content = yield this.github.getFileContent(CHANGELOG_FILENAME, branch);
-                this.logInfo('Found existing CHANGELOG.md in repository');
+                this.githubUtilsService.logInfo('Found existing CHANGELOG.md in repository');
                 return content;
             }
             catch (error) {
-                this.logInfo('CHANGELOG.md not found in repository, creating new one');
+                this.githubUtilsService.logInfo('CHANGELOG.md not found in repository, creating new one');
                 return '';
             }
         });
@@ -32981,24 +32972,251 @@ ${SEPARATOR}
             const fileSha = yield this.getFileShaSafely(branch);
             const commitMessage = this.createCommitMessage(version);
             yield this.github.updateFile(CHANGELOG_FILENAME, content, commitMessage, branch, fileSha);
-            this.logInfo('Changelog committed successfully via GitHub API');
+            this.githubUtilsService.logInfo('Changelog committed successfully via GitHub API');
         });
     }
     getFileShaSafely(branch) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                const sha = yield this.getFileSha(CHANGELOG_FILENAME, branch);
-                this.logInfo('Updating existing CHANGELOG.md');
+                const sha = yield this.githubUtilsService.getFileSha(CHANGELOG_FILENAME, branch);
+                this.githubUtilsService.logInfo('Updating existing CHANGELOG.md');
                 return sha;
             }
             catch (error) {
-                this.logInfo('Creating new CHANGELOG.md');
+                this.githubUtilsService.logInfo('Creating new CHANGELOG.md');
                 return '';
             }
         });
     }
     createCommitMessage(version) {
         return `docs: update changelog for version ${version}`;
+    }
+    handleChangelogError(error) {
+        this.githubUtilsService.logInfo(`Error updating changelog: ${error}`);
+        this.githubUtilsService.logInfo('Continuing with release process...');
+    }
+}
+exports.ChangelogService = ChangelogService;
+
+
+/***/ }),
+
+/***/ 1539:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CreateReleaseService = void 0;
+const fs = __importStar(__nccwpck_require__(7147));
+const path = __importStar(__nccwpck_require__(1017));
+const github_1 = __nccwpck_require__(4907);
+const VERSION_TAG_PREFIX = 'v';
+const RELEASE_NAME_PREFIX = 'Release v';
+const ASSET_EXTENSIONS = {
+    MTAR: '.mtar',
+    ZIP: '.zip',
+};
+class CreateReleaseService {
+    constructor(github) {
+        this.github = github;
+        this.githubUtilsService = new github_1.GitHubUtilsService(github);
+    }
+    createGitHubRelease(config) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                this.githubUtilsService.logInfo(`Creating GitHub release for version ${config.version}`);
+                const prInfo = yield this.getPRInformation(config.version);
+                const releaseResponse = yield this.createRelease(config, prInfo);
+                this.githubUtilsService.logInfo(`Release created with ID: ${releaseResponse.data.id}, ` +
+                    `Tag: ${releaseResponse.data.tag_name}`);
+                yield this.uploadReleaseAsset(releaseResponse.data.id, config.releaseFilePath);
+                this.githubUtilsService.logInfo(`GitHub release created successfully: ${releaseResponse.data.html_url}`);
+            }
+            catch (error) {
+                this.githubUtilsService.logInfo(`Error creating GitHub release: ${error}`);
+                throw error;
+            }
+        });
+    }
+    getPRInformation(version) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const branchName = this.getBranchName(version);
+            return yield this.githubUtilsService.getPRInfo(branchName);
+        });
+    }
+    getBranchName(version) {
+        return `release/${version}`;
+    }
+    createRelease(config, prInfo) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const instance = this.getOctokitInstance();
+            const context = this.getGitHubContext();
+            const releaseBody = this.buildReleaseBody({
+                version: config.version,
+                description: prInfo.body,
+                projectName: config.projectName,
+                repoInfo: context.repo,
+                prUrl: prInfo.url,
+            });
+            return yield instance.repos.createRelease(Object.assign(Object.assign({}, context.repo), { tag_name: this.getTagName(config.version), name: this.getReleaseName(config.version), body: releaseBody, draft: false, prerelease: false }));
+        });
+    }
+    buildReleaseBody(config) {
+        const assets = this.getAssetDescriptions(config.projectName, config.version);
+        const usage = this.getUsageInstructions(config.repoInfo, config.version);
+        const prLink = config.prUrl ? this.getPRLink(config.prUrl) : '';
+        return `## 🚀 New Release v${config.version}
+
+This release includes:
+
+${config.description || 'Release updates and improvements'}
+
+## 📦 Assets
+
+${assets}
+
+## 🔧 Usage
+
+${usage}
+
+${prLink}`;
+    }
+    getAssetDescriptions(projectName, version) {
+        const mtarAsset = `\`${projectName}-v${version}${ASSET_EXTENSIONS.MTAR}\``;
+        const zipAsset = `\`${projectName}-v${version}${ASSET_EXTENSIONS.ZIP}\``;
+        return `- ${mtarAsset} - Complete package ready for deployment
+- ${zipAsset} - Complete package ready for use`;
+    }
+    getUsageInstructions(repoInfo, version) {
+        return `You can use this action in your workflows:
+
+\`\`\`yaml
+- name: Run Git Flow
+  uses: ${repoInfo.owner}/${repoInfo.repo}@v${version}
+  with:
+    github_token: \${{ secrets.GITHUB_TOKEN }}
+    master_branch: 'main'
+    development_branch: 'development'
+\`\`\``;
+    }
+    getPRLink(prUrl) {
+        return `[🔎 See PR](${prUrl})`;
+    }
+    uploadReleaseAsset(releaseId, releaseFilePath) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!releaseId || releaseId <= 0) {
+                this.githubUtilsService.logInfo(`Invalid release ID: ${releaseId}. Cannot upload asset.`);
+                return;
+            }
+            const asset = this.prepareAsset(releaseFilePath);
+            if (!asset.exists) {
+                this.githubUtilsService.logInfo(`Asset file not found: ${asset.filePath}`);
+                return;
+            }
+            yield this.performAssetUpload(releaseId, asset);
+            this.githubUtilsService.logInfo(`Asset uploaded: ${asset.fileName}`);
+        });
+    }
+    prepareAsset(filePath) {
+        return {
+            filePath,
+            fileName: path.basename(filePath),
+            exists: fs.existsSync(filePath),
+        };
+    }
+    performAssetUpload(releaseId, asset) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const instance = this.getOctokitInstance();
+            const context = this.getGitHubContext();
+            const assetData = fs.readFileSync(asset.filePath);
+            yield instance.repos.uploadReleaseAsset(Object.assign(Object.assign({}, context.repo), { release_id: releaseId, name: asset.fileName, data: assetData }));
+        });
+    }
+    getTagName(version) {
+        return `${VERSION_TAG_PREFIX}${version}`;
+    }
+    getReleaseName(version) {
+        return `${RELEASE_NAME_PREFIX}${version}`;
+    }
+    getOctokitInstance() {
+        return this.github.getOctokitInstance();
+    }
+    getGitHubContext() {
+        return this.github.client.context;
+    }
+}
+exports.CreateReleaseService = CreateReleaseService;
+
+
+/***/ }),
+
+/***/ 4907:
+/***/ (function(__unused_webpack_module, exports) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.GitHubUtilsService = void 0;
+class GitHubUtilsService {
+    constructor(github) {
+        this.github = github;
+    }
+    createTag(params) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const tag = this.getTagName(params.branches.current, params.prefixes.release, params.prefixes.tag);
+            this.logInfo(`SHA -------> ${params.sha}`);
+            this.logInfo(`TAG -------> ${tag}`);
+            yield this.github.createTag(tag, params.sha);
+        });
+    }
+    getTagName(currentBranch, releasePrefix, tagPrefix) {
+        const branchName = currentBranch.split(releasePrefix).join('');
+        return `${tagPrefix}${branchName}`;
+    }
+    getFileSha(filePath, branch) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const instance = this.github.getOctokitInstance();
+            const response = yield instance.repos.getContent(Object.assign(Object.assign({}, this.github.client.context.repo), { path: filePath, ref: branch }));
+            return response.data.sha;
+        });
     }
     getPRInfo(branch) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -33070,222 +33288,11 @@ This release includes changes from PR #${pr.number}.
 
 For detailed information, please check the pull request.`;
     }
-    getFileSha(filePath, branch) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const instance = this.github.getOctokitInstance();
-            const response = yield instance.repos.getContent(Object.assign(Object.assign({}, this.github.client.context.repo), { path: filePath, ref: branch }));
-            return response.data.sha;
-        });
-    }
     logInfo(message) {
         this.github.getCore().info(message);
     }
-    handleChangelogError(error) {
-        this.logInfo(`Error updating changelog: ${error}`);
-        this.logInfo('Continuing with release process...');
-    }
 }
-exports.ChangelogService = ChangelogService;
-
-
-/***/ }),
-
-/***/ 1539:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
-
-"use strict";
-
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.CreateReleaseService = void 0;
-const fs = __importStar(__nccwpck_require__(7147));
-const path = __importStar(__nccwpck_require__(1017));
-const changelog_1 = __nccwpck_require__(6974);
-// Constants
-const VERSION_TAG_PREFIX = 'v';
-const RELEASE_NAME_PREFIX = 'Release v';
-const ASSET_EXTENSIONS = {
-    MTAR: '.mtar',
-    ZIP: '.zip',
-};
-class CreateReleaseService {
-    constructor(github) {
-        this.github = github;
-        this.changelogService = new changelog_1.ChangelogService(github);
-    }
-    createGitHubRelease(config) {
-        return __awaiter(this, void 0, void 0, function* () {
-            try {
-                this.logReleaseStart(config.version);
-                const prInfo = yield this.getPRInformation(config.version);
-                const releaseResponse = yield this.createRelease(config, prInfo);
-                this.logReleaseCreated(releaseResponse.data.id, releaseResponse.data.tag_name);
-                yield this.uploadReleaseAsset(releaseResponse.data.id, config.releaseFilePath);
-                this.logReleaseSuccess(releaseResponse.data.html_url);
-            }
-            catch (error) {
-                this.handleReleaseError(error);
-                throw error;
-            }
-        });
-    }
-    getPRInformation(version) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const branchName = this.getBranchName(version);
-            return yield this.changelogService.getPRInfo(branchName);
-        });
-    }
-    getBranchName(version) {
-        return `release/${version}`;
-    }
-    createRelease(config, prInfo) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const instance = this.getOctokitInstance();
-            const context = this.getGitHubContext();
-            const releaseBody = this.buildReleaseBody({
-                version: config.version,
-                description: prInfo.body,
-                projectName: config.projectName,
-                repoInfo: context.repo,
-                prUrl: prInfo.url,
-            });
-            return yield instance.repos.createRelease(Object.assign(Object.assign({}, context.repo), { tag_name: this.getTagName(config.version), name: this.getReleaseName(config.version), body: releaseBody, draft: false, prerelease: false }));
-        });
-    }
-    buildReleaseBody(config) {
-        const assets = this.getAssetDescriptions(config.projectName, config.version);
-        const usage = this.getUsageInstructions(config.repoInfo, config.version);
-        const prLink = config.prUrl ? this.getPRLink(config.prUrl) : '';
-        return `## 🚀 New Release v${config.version}
-
-This release includes:
-
-${config.description || 'Release updates and improvements'}
-
-## 📦 Assets
-
-${assets}
-
-## 🔧 Usage
-
-${usage}
-
-${prLink}`;
-    }
-    getAssetDescriptions(projectName, version) {
-        const mtarAsset = `\`${projectName}-v${version}${ASSET_EXTENSIONS.MTAR}\``;
-        const zipAsset = `\`${projectName}-v${version}${ASSET_EXTENSIONS.ZIP}\``;
-        return `- ${mtarAsset} - Complete package ready for deployment
-- ${zipAsset} - Complete package ready for use`;
-    }
-    getUsageInstructions(repoInfo, version) {
-        return `You can use this action in your workflows:
-
-\`\`\`yaml
-- name: Run Git Flow
-  uses: ${repoInfo.owner}/${repoInfo.repo}@v${version}
-  with:
-    github_token: \${{ secrets.GITHUB_TOKEN }}
-    master_branch: 'main'
-    development_branch: 'development'
-\`\`\``;
-    }
-    getPRLink(prUrl) {
-        return `[🔎 See PR](${prUrl})`;
-    }
-    uploadReleaseAsset(releaseId, releaseFilePath) {
-        return __awaiter(this, void 0, void 0, function* () {
-            if (!releaseId || releaseId <= 0) {
-                this.logInvalidReleaseId(releaseId);
-                return;
-            }
-            const asset = this.prepareAsset(releaseFilePath);
-            if (!asset.exists) {
-                this.logAssetNotFound(asset.filePath);
-                return;
-            }
-            yield this.performAssetUpload(releaseId, asset);
-            this.logAssetUploadSuccess(asset.fileName);
-        });
-    }
-    prepareAsset(filePath) {
-        return {
-            filePath,
-            fileName: path.basename(filePath),
-            exists: fs.existsSync(filePath),
-        };
-    }
-    performAssetUpload(releaseId, asset) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const instance = this.getOctokitInstance();
-            const context = this.getGitHubContext();
-            const assetData = fs.readFileSync(asset.filePath);
-            yield instance.repos.uploadReleaseAsset(Object.assign(Object.assign({}, context.repo), { release_id: releaseId, name: asset.fileName, data: assetData }));
-        });
-    }
-    getTagName(version) {
-        return `${VERSION_TAG_PREFIX}${version}`;
-    }
-    getReleaseName(version) {
-        return `${RELEASE_NAME_PREFIX}${version}`;
-    }
-    getOctokitInstance() {
-        return this.github.getOctokitInstance();
-    }
-    getGitHubContext() {
-        return this.github.client.context;
-    }
-    // Logging methods
-    logReleaseStart(version) {
-        this.github.getCore().info(`Creating GitHub release for version ${version}`);
-    }
-    logReleaseCreated(releaseId, tagName) {
-        this.github.getCore().info(`Release created with ID: ${releaseId}, Tag: ${tagName}`);
-    }
-    logReleaseSuccess(htmlUrl) {
-        this.github.getCore().info(`GitHub release created successfully: ${htmlUrl}`);
-    }
-    logAssetNotFound(filePath) {
-        this.github.getCore().info(`Asset file not found: ${filePath}`);
-    }
-    logAssetUploadSuccess(fileName) {
-        this.github.getCore().info(`Asset uploaded: ${fileName}`);
-    }
-    logInvalidReleaseId(releaseId) {
-        this.github.getCore().info(`Invalid release ID: ${releaseId}. Cannot upload asset.`);
-    }
-    handleReleaseError(error) {
-        this.github.getCore().info(`Error creating GitHub release: ${error}`);
-    }
-}
-exports.CreateReleaseService = CreateReleaseService;
+exports.GitHubUtilsService = GitHubUtilsService;
 
 
 /***/ }),
@@ -33328,6 +33335,7 @@ exports.ProjectManagerService = void 0;
 const fs = __importStar(__nccwpck_require__(7147));
 const path = __importStar(__nccwpck_require__(1017));
 const child_process_1 = __nccwpck_require__(2081);
+const github_1 = __nccwpck_require__(4907);
 const DEFAULT_PROJECT_NAME = 'unknown-project';
 const PACKAGE_JSON_FILE = 'package.json';
 const PACKAGE_LOCK_FILE = 'package-lock.json';
@@ -33340,6 +33348,7 @@ const ZIP_EXTENSION = '.zip';
 class ProjectManagerService {
     constructor(github) {
         this.github = github;
+        this.githubUtilsService = new github_1.GitHubUtilsService(github);
     }
     getProjectName() {
         try {
@@ -33351,22 +33360,22 @@ class ProjectManagerService {
             return packageContent.name || DEFAULT_PROJECT_NAME;
         }
         catch (error) {
-            this.logError('Error reading project name', error);
+            this.githubUtilsService.logInfo(`Error reading project name: ${error}`);
             return DEFAULT_PROJECT_NAME;
         }
     }
     buildProject(version, projectName) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                this.logInfo(`Building project for version ${version}`);
+                this.githubUtilsService.logInfo(`Building project for version ${version}`);
                 yield this.prepareBuildEnvironment();
                 const projectInfo = this.analyzeProject(version, projectName);
                 const buildResult = yield this.executeBuild(projectInfo);
-                this.logInfo(`Build successful! Created ${buildResult.fileName}`);
+                this.githubUtilsService.logInfo(`Build successful! Created ${buildResult.fileName}`);
                 return buildResult.filePath;
             }
             catch (error) {
-                this.handleBuildError(error);
+                this.githubUtilsService.logInfo(`Build failed: ${error}`);
                 throw error;
             }
         });
@@ -33395,7 +33404,7 @@ class ProjectManagerService {
     }
     processMtaBuild(projectInfo) {
         return __awaiter(this, void 0, void 0, function* () {
-            this.logInfo('MTA project detected, looking for MTAR file...');
+            this.githubUtilsService.logInfo('MTA project detected, looking for MTAR file...');
             const mtarFilePath = yield this.findAndProcessMtarFile(projectInfo);
             return {
                 filePath: mtarFilePath,
@@ -33406,7 +33415,7 @@ class ProjectManagerService {
     }
     processStandardBuild(projectInfo) {
         return __awaiter(this, void 0, void 0, function* () {
-            this.logInfo('Standard project detected, verifying build files...');
+            this.githubUtilsService.logInfo('Standard project detected, verifying build files...');
             this.verifyStandardBuildFiles();
             const packageFilePath = this.createStandardPackage(projectInfo);
             return {
@@ -33433,7 +33442,7 @@ class ProjectManagerService {
         const versionedFileName = `${projectInfo.name}-v${projectInfo.version}${MTAR_EXTENSION}`;
         const versionedFilePath = path.join(archivesPath, versionedFileName);
         fs.renameSync(originalFilePath, versionedFilePath);
-        this.logInfo(`Renamed to ${versionedFileName}`);
+        this.githubUtilsService.logInfo(`Renamed to ${versionedFileName}`);
         return versionedFilePath;
     }
     verifyStandardBuildFiles() {
@@ -33443,7 +33452,7 @@ class ProjectManagerService {
         }
     }
     createStandardPackage(projectInfo) {
-        this.logInfo('Creating standard package...');
+        this.githubUtilsService.logInfo('Creating standard package...');
         const packageFileName = `${projectInfo.name}-v${projectInfo.version}${ZIP_EXTENSION}`;
         const filesToPackage = this.getStandardPackageFiles();
         this.createZipPackage(packageFileName, filesToPackage);
@@ -33464,17 +33473,17 @@ class ProjectManagerService {
     }
     installDependencies() {
         return __awaiter(this, void 0, void 0, function* () {
-            this.logInfo('Installing dependencies...');
+            this.githubUtilsService.logInfo('Installing dependencies...');
             const packageManager = this.detectPackageManager();
-            this.logInfo(packageManager.installCommand);
+            this.githubUtilsService.logInfo(packageManager.installCommand);
             child_process_1.execSync(packageManager.installCommand, { stdio: 'inherit' });
         });
     }
     runBuild() {
         return __awaiter(this, void 0, void 0, function* () {
-            this.logInfo('Building project...');
+            this.githubUtilsService.logInfo('Building project...');
             const packageManager = this.detectPackageManager();
-            this.logInfo(packageManager.buildCommand);
+            this.githubUtilsService.logInfo(packageManager.buildCommand);
             child_process_1.execSync(packageManager.buildCommand, { stdio: 'inherit' });
         });
     }
@@ -33540,16 +33549,6 @@ class ProjectManagerService {
         return fs.readdirSync(directoryPath)
             .filter((file) => file.endsWith(MTAR_EXTENSION));
     }
-    // Logging utilities
-    logInfo(message) {
-        this.github.getCore().info(message);
-    }
-    logError(message, error) {
-        this.github.getCore().info(`${message}: ${error}`);
-    }
-    handleBuildError(error) {
-        this.logError('Build failed', error);
-    }
 }
 exports.ProjectManagerService = ProjectManagerService;
 
@@ -33557,7 +33556,7 @@ exports.ProjectManagerService = ProjectManagerService;
 /***/ }),
 
 /***/ 7810:
-/***/ (function(__unused_webpack_module, exports) {
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
 
@@ -33572,6 +33571,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.VersionManagerService = exports.VERSION_FILES = void 0;
+const github_1 = __nccwpck_require__(4907);
 exports.VERSION_FILES = {
     PACKAGE_JSON: {
         name: 'package.json',
@@ -33585,6 +33585,7 @@ exports.VERSION_FILES = {
 class VersionManagerService {
     constructor(github) {
         this.github = github;
+        this.githubUtilsService = new github_1.GitHubUtilsService(github);
     }
     extractVersionFromBranch(branchName, releasePrefix) {
         const versionRegex = new RegExp(`^${releasePrefix.replace('/', '\\/')}([0-9]+\\.[0-9]+\\.[0-9]+)$`);
@@ -33594,25 +33595,18 @@ class VersionManagerService {
         }
         return match[1];
     }
-    getFileSha(filePath, branch) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const instance = this.github.getOctokitInstance();
-            const response = yield instance.repos.getContent(Object.assign(Object.assign({}, this.github.client.context.repo), { path: filePath, ref: branch }));
-            return response.data.sha;
-        });
-    }
     updateVersionFiles(branches, version) {
         return __awaiter(this, void 0, void 0, function* () {
-            this.github.getCore().info(`Updating version files to: ${version}`);
+            this.githubUtilsService.logInfo(`Updating version files to: ${version}`);
             try {
                 const filesToUpdate = this.getVersionFilesToUpdate();
                 for (const file of filesToUpdate) {
                     yield this.updateVersionFile(file.name, version, branches.current, file.required);
                 }
-                this.github.getCore().info('Version files updated successfully');
+                this.githubUtilsService.logInfo('Version files updated successfully');
             }
             catch (error) {
-                this.github.getCore().info(`Error updating version files: ${error}`);
+                this.githubUtilsService.logInfo(`Error updating version files: ${error}`);
                 throw error;
             }
         });
@@ -33625,13 +33619,13 @@ class VersionManagerService {
             try {
                 const content = yield this.github.getFileContent(fileName, branch);
                 const updatedContent = this.getUpdatedFileContent(fileName, content, version);
-                const fileSha = yield this.getFileSha(fileName, branch);
+                const fileSha = yield this.githubUtilsService.getFileSha(fileName, branch);
                 yield this.github.updateFile(fileName, updatedContent, this.createCommitVersionMessage(fileName, version), branch, fileSha);
-                this.github.getCore().info(`${fileName} version updated to: ${version}`);
+                this.githubUtilsService.logInfo(`${fileName} version updated to: ${version}`);
             }
             catch (error) {
                 const errorMessage = `Error updating ${fileName}: ${error}`;
-                this.github.getCore().info(errorMessage);
+                this.githubUtilsService.logInfo(errorMessage);
                 if (isRequired) {
                     throw error;
                 }
