@@ -32774,10 +32774,9 @@ const project_manager_1 = __nccwpck_require__(4610);
 const version_manager_1 = __nccwpck_require__(7810);
 class Release {
     constructor(github) {
-        this.releaseFilePath = '';
         this.github = github;
         this.changelogService = new changelog_1.ChangelogService(github);
-        this.projectManager = new project_manager_1.ProjectManagerService();
+        this.projectManager = new project_manager_1.ProjectManagerService(github);
         this.versionManager = new version_manager_1.VersionManagerService(github);
     }
     test() {
@@ -32800,8 +32799,8 @@ class Release {
             const sha = yield this.merge(branches);
             // // Create tag
             // await this.createTag({ branches, prefixes, sha });
-            // // Build the project
-            // await this.buildProject(version, projectName, branches);
+            // Build the project
+            yield this.projectManager.buildProject(version, projectName);
             // // Create GitHub release
             // await this.createGitHubRelease(version, projectName);
             // // Delete release branch (after everything is done)
@@ -33099,24 +33098,241 @@ var __importStar = (this && this.__importStar) || function (mod) {
     __setModuleDefault(result, mod);
     return result;
 };
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ProjectManagerService = void 0;
 const fs = __importStar(__nccwpck_require__(7147));
 const path = __importStar(__nccwpck_require__(1017));
+const child_process_1 = __nccwpck_require__(2081);
+const DEFAULT_PROJECT_NAME = 'unknown-project';
+const PACKAGE_JSON_FILE = 'package.json';
+const PACKAGE_LOCK_FILE = 'package-lock.json';
+const YARN_LOCK_FILE = 'yarn.lock';
+const MTA_YAML_FILE = 'mta.yaml';
+const MTA_ARCHIVES_DIR = 'mta_archives';
+const MTAR_EXTENSION = '.mtar';
+const STANDARD_BUILD_FILE = 'lib/main/index.js';
+const ZIP_EXTENSION = '.zip';
 class ProjectManagerService {
+    constructor(github) {
+        this.github = github;
+    }
     getProjectName() {
-        const DEFAULT_PROJECT_NAME = 'unknown-project';
         try {
-            const packageJsonPath = path.join(process.cwd(), 'package.json');
-            if (!fs.existsSync(packageJsonPath)) {
+            const packageJsonPath = this.getPackageJsonPath();
+            if (!this.fileExists(packageJsonPath)) {
                 return DEFAULT_PROJECT_NAME;
             }
-            const packageContent = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+            const packageContent = this.readJsonFile(packageJsonPath);
             return packageContent.name || DEFAULT_PROJECT_NAME;
         }
         catch (error) {
+            this.logError('Error reading project name', error);
             return DEFAULT_PROJECT_NAME;
         }
+    }
+    buildProject(version, projectName) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                this.logInfo(`Building project for version ${version}`);
+                yield this.prepareBuildEnvironment();
+                const projectInfo = this.analyzeProject(version, projectName);
+                const buildResult = yield this.executeBuild(projectInfo);
+                this.logInfo(`Build successful! Created ${buildResult.fileName}`);
+                return buildResult.filePath;
+            }
+            catch (error) {
+                this.handleBuildError(error);
+                throw error;
+            }
+        });
+    }
+    prepareBuildEnvironment() {
+        return __awaiter(this, void 0, void 0, function* () {
+            yield this.installDependencies();
+            yield this.runBuild();
+        });
+    }
+    analyzeProject(version, projectName) {
+        const isMtaProject = this.isMtaProject();
+        return {
+            name: projectName,
+            version,
+            isMtaProject,
+        };
+    }
+    executeBuild(projectInfo) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (projectInfo.isMtaProject) {
+                return yield this.processMtaBuild(projectInfo);
+            }
+            return yield this.processStandardBuild(projectInfo);
+        });
+    }
+    processMtaBuild(projectInfo) {
+        return __awaiter(this, void 0, void 0, function* () {
+            this.logInfo('MTA project detected, looking for MTAR file...');
+            const mtarFilePath = yield this.findAndProcessMtarFile(projectInfo);
+            return {
+                filePath: mtarFilePath,
+                fileName: path.basename(mtarFilePath),
+                projectType: 'mta',
+            };
+        });
+    }
+    processStandardBuild(projectInfo) {
+        return __awaiter(this, void 0, void 0, function* () {
+            this.logInfo('Standard project detected, verifying build files...');
+            this.verifyStandardBuildFiles();
+            const packageFilePath = this.createStandardPackage(projectInfo);
+            return {
+                filePath: packageFilePath,
+                fileName: path.basename(packageFilePath),
+                projectType: 'standard',
+            };
+        });
+    }
+    findAndProcessMtarFile(projectInfo) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const mtarArchivesPath = this.getMtarArchivesPath();
+            this.validateMtarDirectory(mtarArchivesPath);
+            const mtarFiles = this.findMtarFiles(mtarArchivesPath);
+            if (mtarFiles.length === 0) {
+                throw new Error('MTA project detected but no MTAR files found in mta_archives directory. ' +
+                    'Build may have failed.');
+            }
+            return this.renameMtarFile(mtarFiles[0], mtarArchivesPath, projectInfo);
+        });
+    }
+    renameMtarFile(originalFileName, archivesPath, projectInfo) {
+        const originalFilePath = path.join(archivesPath, originalFileName);
+        const versionedFileName = `${projectInfo.name}-v${projectInfo.version}${MTAR_EXTENSION}`;
+        const versionedFilePath = path.join(archivesPath, versionedFileName);
+        fs.renameSync(originalFilePath, versionedFilePath);
+        this.logInfo(`Renamed to ${versionedFileName}`);
+        return versionedFilePath;
+    }
+    verifyStandardBuildFiles() {
+        const buildFilePath = path.join(process.cwd(), STANDARD_BUILD_FILE);
+        if (!this.fileExists(buildFilePath)) {
+            throw new Error(`Build files not found after build. Expected ${STANDARD_BUILD_FILE}`);
+        }
+    }
+    createStandardPackage(projectInfo) {
+        this.logInfo('Creating standard package...');
+        const packageFileName = `${projectInfo.name}-v${projectInfo.version}${ZIP_EXTENSION}`;
+        const filesToPackage = this.getStandardPackageFiles();
+        this.createZipPackage(packageFileName, filesToPackage);
+        return packageFileName;
+    }
+    getStandardPackageFiles() {
+        return [
+            'lib/',
+            'action.yml',
+            PACKAGE_JSON_FILE,
+            'README.md',
+            'LICENSE',
+        ];
+    }
+    createZipPackage(fileName, files) {
+        const command = `zip -r ${fileName} ${files.join(' ')}`;
+        child_process_1.execSync(command, { stdio: 'inherit' });
+    }
+    installDependencies() {
+        return __awaiter(this, void 0, void 0, function* () {
+            this.logInfo('Installing dependencies...');
+            const packageManager = this.detectPackageManager();
+            this.logInfo(packageManager.installCommand);
+            child_process_1.execSync(packageManager.installCommand, { stdio: 'inherit' });
+        });
+    }
+    runBuild() {
+        return __awaiter(this, void 0, void 0, function* () {
+            this.logInfo('Building project...');
+            const packageManager = this.detectPackageManager();
+            this.logInfo(packageManager.buildCommand);
+            child_process_1.execSync(packageManager.buildCommand, { stdio: 'inherit' });
+        });
+    }
+    detectPackageManager() {
+        const hasPackageLock = this.hasPackageLockFile();
+        const hasYarnLock = this.hasYarnLockFile();
+        if (hasPackageLock) {
+            return {
+                type: 'npm',
+                hasLockFile: true,
+                installCommand: 'npm ci',
+                buildCommand: 'npm run build',
+            };
+        }
+        if (hasYarnLock) {
+            return {
+                type: 'yarn',
+                hasLockFile: true,
+                installCommand: 'yarn install --frozen-lockfile',
+                buildCommand: 'yarn build',
+            };
+        }
+        return {
+            type: 'npm',
+            hasLockFile: false,
+            installCommand: 'npm install',
+            buildCommand: 'npm run build',
+        };
+    }
+    // File system utilities
+    getPackageJsonPath() {
+        return path.join(process.cwd(), PACKAGE_JSON_FILE);
+    }
+    getMtarArchivesPath() {
+        return path.join(process.cwd(), MTA_ARCHIVES_DIR);
+    }
+    fileExists(filePath) {
+        return fs.existsSync(filePath);
+    }
+    readJsonFile(filePath) {
+        const content = fs.readFileSync(filePath, 'utf8');
+        return JSON.parse(content);
+    }
+    isMtaProject() {
+        const mtaYamlPath = path.join(process.cwd(), MTA_YAML_FILE);
+        return this.fileExists(mtaYamlPath);
+    }
+    hasPackageLockFile() {
+        const packageLockPath = path.join(process.cwd(), PACKAGE_LOCK_FILE);
+        return this.fileExists(packageLockPath);
+    }
+    hasYarnLockFile() {
+        const yarnLockPath = path.join(process.cwd(), YARN_LOCK_FILE);
+        return this.fileExists(yarnLockPath);
+    }
+    validateMtarDirectory(mtarPath) {
+        if (!this.fileExists(mtarPath)) {
+            throw new Error('MTA project detected but mta_archives directory not found. ' +
+                'Build may have failed.');
+        }
+    }
+    findMtarFiles(directoryPath) {
+        return fs.readdirSync(directoryPath)
+            .filter((file) => file.endsWith(MTAR_EXTENSION));
+    }
+    // Logging utilities
+    logInfo(message) {
+        this.github.getCore().info(message);
+    }
+    logError(message, error) {
+        this.github.getCore().info(`${message}: ${error}`);
+    }
+    handleBuildError(error) {
+        this.logError('Build failed', error);
     }
 }
 exports.ProjectManagerService = ProjectManagerService;
@@ -33278,6 +33494,14 @@ module.exports = require("async_hooks");
 
 "use strict";
 module.exports = require("buffer");
+
+/***/ }),
+
+/***/ 2081:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("child_process");
 
 /***/ }),
 
