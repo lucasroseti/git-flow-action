@@ -33092,7 +33092,6 @@ class CreateReleaseService {
     }
     buildReleaseBody(config) {
         const assets = this.getAssetDescriptions(config.projectName, config.version);
-        const usage = this.getUsageInstructions(config.repoInfo, config.version);
         const prLink = config.prUrl ? this.getPRLink(config.prUrl) : '';
         return `## 🚀 New Release v${config.version}
 
@@ -33104,10 +33103,6 @@ ${config.description || 'Release updates and improvements'}
 
 ${assets}
 
-## 🔧 Usage
-
-${usage}
-
 ${prLink}`;
     }
     getAssetDescriptions(projectName, version) {
@@ -33115,18 +33110,6 @@ ${prLink}`;
         const zipAsset = `\`${projectName}-v${version}${ASSET_EXTENSIONS.ZIP}\``;
         return `- ${mtarAsset} - Complete package ready for deployment
 - ${zipAsset} - Complete package ready for use`;
-    }
-    getUsageInstructions(repoInfo, version) {
-        return `You can use this action in your workflows:
-
-\`\`\`yaml
-- name: Run Git Flow
-  uses: ${repoInfo.owner}/${repoInfo.repo}@v${version}
-  with:
-    github_token: \${{ secrets.GITHUB_TOKEN }}
-    master_branch: 'main'
-    development_branch: 'development'
-\`\`\``;
     }
     getPRLink(prUrl) {
         return `[🔎 See PR](${prUrl})`;
