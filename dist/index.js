@@ -32772,12 +32772,14 @@ exports.Release = void 0;
 const changelog_1 = __nccwpck_require__(6974);
 const project_manager_1 = __nccwpck_require__(4610);
 const version_manager_1 = __nccwpck_require__(7810);
+const create_release_1 = __nccwpck_require__(1539);
 class Release {
     constructor(github) {
         this.github = github;
         this.changelogService = new changelog_1.ChangelogService(github);
         this.projectManager = new project_manager_1.ProjectManagerService(github);
         this.versionManager = new version_manager_1.VersionManagerService(github);
+        this.createReleaseService = new create_release_1.CreateReleaseService(github);
     }
     test() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -32797,14 +32799,16 @@ class Release {
             yield this.versionManager.updateVersionFiles(branches, version);
             yield this.changelogService.createOrUpdateChangelog(version, branches.current);
             const sha = yield this.merge(branches);
-            // // Create tag
-            // await this.createTag({ branches, prefixes, sha });
-            // Build the project
-            yield this.projectManager.buildProject(version, projectName);
-            // // Create GitHub release
-            // await this.createGitHubRelease(version, projectName);
-            // // Delete release branch (after everything is done)
-            // await this.github.delete(branches.current);
+            yield this.createTag({ branches, prefixes, sha });
+            const releaseFilePath = yield this.projectManager.buildProject(version, projectName);
+            const releaseConfig = {
+                version,
+                projectName,
+                releaseFilePath,
+            };
+            yield this.createReleaseService.createGitHubRelease(releaseConfig);
+            // Delete release branch (after everything is done)
+            yield this.github.delete(branches.current);
             return sha;
         });
     }
@@ -32814,6 +32818,18 @@ class Release {
             const sha = yield this.github.merge(branches.current, branches.main);
             return sha;
         });
+    }
+    createTag(params) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const tag = this.getTagName(params.branches.current, params.prefixes.release, params.prefixes.tag);
+            this.github.getCore().info(`SHA -------> ${params.sha}`);
+            this.github.getCore().info(`TAG -------> ${tag}`);
+            yield this.github.createTag(tag, params.sha);
+        });
+    }
+    getTagName(currentBranch, releasePrefix, tagPrefix) {
+        const branchName = currentBranch.split(releasePrefix).join('');
+        return `${tagPrefix}${branchName}`;
     }
 }
 exports.Release = Release;
@@ -32883,7 +32899,7 @@ class ChangelogService {
     createOrUpdateChangelog(version, branch) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                this.logInfo(`Creating/updating changelog for version ----- ${version}`);
+                this.logInfo(`Creating/updating changelog for version: ${version}`);
                 const prInfo = yield this.getPRInfo(branch);
                 const changelogEntry = this.createChangelogEntry(version, prInfo);
                 const existingContent = yield this.getExistingChangelogContent(branch);
@@ -33070,6 +33086,195 @@ For detailed information, please check the pull request.`;
     }
 }
 exports.ChangelogService = ChangelogService;
+
+
+/***/ }),
+
+/***/ 1539:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CreateReleaseService = void 0;
+const fs = __importStar(__nccwpck_require__(7147));
+const path = __importStar(__nccwpck_require__(1017));
+const changelog_1 = __nccwpck_require__(6974);
+// Constants
+const VERSION_TAG_PREFIX = 'v';
+const RELEASE_NAME_PREFIX = 'Release v';
+const ASSET_EXTENSIONS = {
+    MTAR: '.mtar',
+    ZIP: '.zip',
+};
+class CreateReleaseService {
+    constructor(github) {
+        this.github = github;
+        this.changelogService = new changelog_1.ChangelogService(github);
+    }
+    createGitHubRelease(config) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                this.logReleaseStart(config.version);
+                const prInfo = yield this.getPRInformation(config.version);
+                const releaseData = yield this.createRelease(config, prInfo);
+                yield this.uploadReleaseAsset(releaseData.id, config.releaseFilePath);
+                this.logReleaseSuccess(releaseData.html_url);
+            }
+            catch (error) {
+                this.handleReleaseError(error);
+                throw error;
+            }
+        });
+    }
+    getPRInformation(version) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const branchName = this.getBranchName(version);
+            return yield this.changelogService.getPRInfo(branchName);
+        });
+    }
+    getBranchName(version) {
+        return `release/${version}`;
+    }
+    createRelease(config, prInfo) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const instance = this.getOctokitInstance();
+            const context = this.getGitHubContext();
+            const releaseBody = this.buildReleaseBody({
+                version: config.version,
+                description: prInfo.body,
+                projectName: config.projectName,
+                repoInfo: context.repo,
+                prUrl: prInfo.url,
+            });
+            return yield instance.repos.createRelease(Object.assign(Object.assign({}, context.repo), { tag_name: this.getTagName(config.version), name: this.getReleaseName(config.version), body: releaseBody, draft: false, prerelease: false }));
+        });
+    }
+    buildReleaseBody(config) {
+        const assets = this.getAssetDescriptions(config.projectName, config.version);
+        const usage = this.getUsageInstructions(config.repoInfo, config.version);
+        const prLink = config.prUrl ? this.getPRLink(config.prUrl) : '';
+        return `## 🚀 New Release v${config.version}
+
+This release includes:
+
+${config.description || 'Release updates and improvements'}
+
+## 📦 Assets
+
+${assets}
+
+## 🔧 Usage
+
+${usage}
+
+${prLink}`;
+    }
+    getAssetDescriptions(projectName, version) {
+        const mtarAsset = `\`${projectName}-v${version}${ASSET_EXTENSIONS.MTAR}\``;
+        const zipAsset = `\`${projectName}-v${version}${ASSET_EXTENSIONS.ZIP}\``;
+        return `- ${mtarAsset} - Complete package ready for deployment
+- ${zipAsset} - Complete package ready for use`;
+    }
+    getUsageInstructions(repoInfo, version) {
+        return `You can use this action in your workflows:
+
+\`\`\`yaml
+- name: Run Git Flow
+  uses: ${repoInfo.owner}/${repoInfo.repo}@v${version}
+  with:
+    github_token: \${{ secrets.GITHUB_TOKEN }}
+    master_branch: 'main'
+    development_branch: 'development'
+\`\`\``;
+    }
+    getPRLink(prUrl) {
+        return `[🔎 See PR](${prUrl})`;
+    }
+    uploadReleaseAsset(releaseId, releaseFilePath) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const asset = this.prepareAsset(releaseFilePath);
+            if (!asset.exists) {
+                this.logAssetNotFound(asset.filePath);
+                return;
+            }
+            yield this.performAssetUpload(releaseId, asset);
+            this.logAssetUploadSuccess(asset.fileName);
+        });
+    }
+    prepareAsset(filePath) {
+        return {
+            filePath,
+            fileName: path.basename(filePath),
+            exists: fs.existsSync(filePath),
+        };
+    }
+    performAssetUpload(releaseId, asset) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const instance = this.getOctokitInstance();
+            const context = this.getGitHubContext();
+            const assetData = fs.readFileSync(asset.filePath);
+            yield instance.repos.uploadReleaseAsset(Object.assign(Object.assign({}, context.repo), { release_id: releaseId, name: asset.fileName, data: assetData }));
+        });
+    }
+    getTagName(version) {
+        return `${VERSION_TAG_PREFIX}${version}`;
+    }
+    getReleaseName(version) {
+        return `${RELEASE_NAME_PREFIX}${version}`;
+    }
+    getOctokitInstance() {
+        return this.github.getOctokitInstance();
+    }
+    getGitHubContext() {
+        return this.github.client.context;
+    }
+    // Logging methods
+    logReleaseStart(version) {
+        this.github.getCore().info(`Creating GitHub release for version ${version}`);
+    }
+    logReleaseSuccess(htmlUrl) {
+        this.github.getCore().info(`GitHub release created successfully: ${htmlUrl}`);
+    }
+    logAssetNotFound(filePath) {
+        this.github.getCore().info(`Asset file not found: ${filePath}`);
+    }
+    logAssetUploadSuccess(fileName) {
+        this.github.getCore().info(`Asset uploaded: ${fileName}`);
+    }
+    handleReleaseError(error) {
+        this.github.getCore().info(`Error creating GitHub release: ${error}`);
+    }
+}
+exports.CreateReleaseService = CreateReleaseService;
 
 
 /***/ }),
