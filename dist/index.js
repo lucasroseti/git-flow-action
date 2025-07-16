@@ -32769,14 +32769,16 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Release = void 0;
-const version_manager_1 = __nccwpck_require__(7810);
+const changelog_1 = __nccwpck_require__(6974);
 const project_manager_1 = __nccwpck_require__(4610);
+const version_manager_1 = __nccwpck_require__(7810);
 class Release {
     constructor(github) {
         this.releaseFilePath = '';
         this.github = github;
-        this.versionManager = new version_manager_1.VersionManagerService(github);
+        this.changelogService = new changelog_1.ChangelogService(github);
         this.projectManager = new project_manager_1.ProjectManagerService();
+        this.versionManager = new version_manager_1.VersionManagerService(github);
     }
     test() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -32791,14 +32793,10 @@ class Release {
             const branches = yield this.github.getBranches();
             const prefixes = this.github.getPrefixes();
             const version = this.versionManager.extractVersionFromBranch(branches.current, prefixes.release);
-            // Get project name
             const projectName = this.projectManager.getProjectName();
             this.github.getCore().info(`Project name: ${projectName}`);
-            // Update version files
-            yield this.updateVersionFiles(branches, version);
-            // // Create or update changelog
-            // await this.createOrUpdateChangelog(version, branches.current);
-            // Merge branches
+            yield this.versionManager.updateVersionFiles(branches, version);
+            yield this.changelogService.createOrUpdateChangelog(version, branches.current);
             const sha = yield this.merge(branches);
             // // Create tag
             // await this.createTag({ branches, prefixes, sha });
@@ -32816,36 +32814,6 @@ class Release {
             yield this.github.merge(branches.current, branches.development);
             const sha = yield this.github.merge(branches.current, branches.main);
             return sha;
-        });
-    }
-    //     private async createTag(params: CreateTagParams): Promise<void> {
-    //         const tag = this.getTagName(
-    //             params.branches.current,
-    //             params.prefixes.release,
-    //             params.prefixes.tag,
-    //         );
-    //         this.github.getCore().info(`SHA -------> ${params.sha}`);
-    //         this.github.getCore().info(`TAG -------> ${tag}`);
-    //         await this.github.createTag(tag, params.sha);
-    //     }
-    //     private getTagName(currentBranch: string, releasePrefix: string, tagPrefix: string): string {
-    //         const branchName = currentBranch.split(releasePrefix).join('');
-    //         return `${tagPrefix}${branchName}`;
-    //     }
-    updateVersionFiles(branches, version) {
-        return __awaiter(this, void 0, void 0, function* () {
-            this.github.getCore().info(`Updating version files to ------> ${version}`);
-            try {
-                const filesToUpdate = this.versionManager.getVersionFilesToUpdate();
-                for (const file of filesToUpdate) {
-                    yield this.versionManager.updateVersionFile(file.name, version, branches.current, file.required);
-                }
-                this.github.getCore().info('Version files updated successfully');
-            }
-            catch (error) {
-                this.github.getCore().info(`Error updating version files: ${error}`);
-                throw error;
-            }
         });
     }
 }
@@ -32883,6 +32851,226 @@ class GitFlowService {
     }
 }
 exports.GitFlowService = GitFlowService;
+
+
+/***/ }),
+
+/***/ 6974:
+/***/ (function(__unused_webpack_module, exports) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ChangelogService = void 0;
+// Constants
+const CHANGELOG_FILENAME = 'CHANGELOG.md';
+const CHANGELOG_HEADER = '# Changelog';
+const VERSION_PREFIX = '# V';
+const SEPARATOR = '---';
+const DEFAULT_RELEASE_MESSAGE = '- Release updates and improvements';
+class ChangelogService {
+    constructor(github) {
+        this.github = github;
+    }
+    createOrUpdateChangelog(version, branch) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                this.logInfo(`Creating/updating changelog for version ----- ${version}`);
+                const prInfo = yield this.getPRInfo(branch);
+                const changelogEntry = this.createChangelogEntry(version, prInfo);
+                const existingContent = yield this.getExistingChangelogContent(branch);
+                const updatedContent = this.mergeChangelogContent(existingContent, changelogEntry);
+                yield this.saveChangelogToRepository(updatedContent, version, branch);
+                this.logInfo('Changelog updated successfully');
+            }
+            catch (error) {
+                this.handleChangelogError(error);
+            }
+        });
+    }
+    createChangelogEntry(version, prInfo) {
+        const releaseContent = prInfo.body || DEFAULT_RELEASE_MESSAGE;
+        const prLink = prInfo.url ? `[🔎 See PR](${prInfo.url})` : '';
+        return `${VERSION_PREFIX}${version}
+
+This release includes:
+
+${releaseContent}
+
+${prLink}
+
+${SEPARATOR}
+`;
+    }
+    getExistingChangelogContent(branch) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                const content = yield this.github.getFileContent(CHANGELOG_FILENAME, branch);
+                this.logInfo('Found existing CHANGELOG.md in repository');
+                return content;
+            }
+            catch (error) {
+                this.logInfo('CHANGELOG.md not found in repository, creating new one');
+                return '';
+            }
+        });
+    }
+    mergeChangelogContent(existingContent, newEntry) {
+        if (this.hasChangelogHeader(existingContent)) {
+            return this.insertIntoExistingChangelog(existingContent, newEntry);
+        }
+        return this.createNewChangelog(existingContent, newEntry);
+    }
+    hasChangelogHeader(content) {
+        return content.includes(CHANGELOG_HEADER);
+    }
+    insertIntoExistingChangelog(existingContent, newEntry) {
+        const lines = existingContent.split('\n');
+        const headerIndex = this.findChangelogHeaderIndex(lines);
+        if (headerIndex === -1) {
+            return this.createNewChangelog(existingContent, newEntry);
+        }
+        const firstVersionIndex = this.findFirstVersionIndex(lines, headerIndex);
+        if (firstVersionIndex === -1) {
+            return `${existingContent}\n\n${newEntry}`;
+        }
+        return this.insertEntryAtPosition(lines, newEntry, firstVersionIndex);
+    }
+    findChangelogHeaderIndex(lines) {
+        return lines.findIndex(line => line.trim().startsWith(CHANGELOG_HEADER));
+    }
+    findFirstVersionIndex(lines, afterIndex) {
+        return lines.findIndex((line, index) => index > afterIndex && line.trim().startsWith(VERSION_PREFIX));
+    }
+    insertEntryAtPosition(lines, newEntry, position) {
+        const beforeVersions = lines.slice(0, position);
+        const existingVersions = lines.slice(position);
+        const beforePart = beforeVersions.join('\n');
+        const existingPart = existingVersions.join('\n');
+        return `${beforePart}\n${newEntry}\n${existingPart}`;
+    }
+    createNewChangelog(existingContent, newEntry) {
+        return `${CHANGELOG_HEADER}\n\n${newEntry}\n${existingContent}`;
+    }
+    saveChangelogToRepository(content, version, branch) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const fileSha = yield this.getFileShaSafely(branch);
+            const commitMessage = this.createCommitMessage(version);
+            yield this.github.updateFile(CHANGELOG_FILENAME, content, commitMessage, branch, fileSha);
+            this.logInfo('Changelog committed successfully via GitHub API');
+        });
+    }
+    getFileShaSafely(branch) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                const sha = yield this.getFileSha(CHANGELOG_FILENAME, branch);
+                this.logInfo('Updating existing CHANGELOG.md');
+                return sha;
+            }
+            catch (error) {
+                this.logInfo('Creating new CHANGELOG.md');
+                return '';
+            }
+        });
+    }
+    createCommitMessage(version) {
+        return `docs: update changelog for version ${version}`;
+    }
+    getPRInfo(branch) {
+        return __awaiter(this, void 0, void 0, function* () {
+            this.logInfo(`Searching for PR: ${branch}`);
+            const branchFormats = this.getBranchSearchFormats(branch);
+            for (const branchFormat of branchFormats) {
+                try {
+                    const prInfo = yield this.searchPRByBranch(branchFormat);
+                    if (prInfo) {
+                        return prInfo;
+                    }
+                }
+                catch (error) {
+                    this.logInfo(`Error searching with format '${branchFormat}': ${error}`);
+                    continue;
+                }
+            }
+            throw new Error(`No Pull Request found for release branch '${branch}'`);
+        });
+    }
+    getBranchSearchFormats(branch) {
+        const context = this.github.client.context;
+        return [
+            branch,
+            branch.replace(/^release\//, ''),
+            `${context.repo.owner}:${branch}`,
+        ];
+    }
+    searchPRByBranch(branchFormat) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const instance = this.github.getOctokitInstance();
+            const context = this.github.client.context;
+            const prs = yield instance.pulls.list(Object.assign(Object.assign({}, context.repo), { head: branchFormat, state: 'all' }));
+            if (!prs.data || prs.data.length === 0) {
+                return null;
+            }
+            const pr = prs.data[0];
+            return yield this.buildPRInfo(pr, instance, context);
+        });
+    }
+    buildPRInfo(pr, instance, context) {
+        return __awaiter(this, void 0, void 0, function* () {
+            this.logInfo(`✅ Found PR #${pr.number}: ${pr.title}`);
+            const detailedPr = yield instance.pulls.get(Object.assign(Object.assign({}, context.repo), { pull_number: pr.number }));
+            const body = this.getPRBody(detailedPr.data, pr);
+            return {
+                body,
+                url: pr.html_url,
+            };
+        });
+    }
+    getPRBody(detailedPr, pr) {
+        const enhancedBody = detailedPr.body || pr.body || '';
+        if (enhancedBody.trim()) {
+            return enhancedBody;
+        }
+        return this.createFallbackPRDescription(detailedPr, pr);
+    }
+    createFallbackPRDescription(detailedPr, pr) {
+        const title = detailedPr.title || pr.title;
+        const changedFiles = detailedPr.changed_files || 'Unknown';
+        const commits = detailedPr.commits || 'Multiple';
+        return `**${title}**
+
+This release includes changes from PR #${pr.number}.
+
+**Changed files:** ${changedFiles} files modified
+**Commits:** ${commits} commits included
+
+For detailed information, please check the pull request.`;
+    }
+    getFileSha(filePath, branch) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const instance = this.github.getOctokitInstance();
+            const response = yield instance.repos.getContent(Object.assign(Object.assign({}, this.github.client.context.repo), { path: filePath, ref: branch }));
+            return response.data.sha;
+        });
+    }
+    logInfo(message) {
+        this.github.getCore().info(message);
+    }
+    handleChangelogError(error) {
+        this.logInfo(`Error updating changelog: ${error}`);
+        this.logInfo('Continuing with release process...');
+    }
+}
+exports.ChangelogService = ChangelogService;
 
 
 /***/ }),
@@ -32974,6 +33162,29 @@ class VersionManagerService {
         }
         return match[1];
     }
+    getFileSha(filePath, branch) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const instance = this.github.getOctokitInstance();
+            const response = yield instance.repos.getContent(Object.assign(Object.assign({}, this.github.client.context.repo), { path: filePath, ref: branch }));
+            return response.data.sha;
+        });
+    }
+    updateVersionFiles(branches, version) {
+        return __awaiter(this, void 0, void 0, function* () {
+            this.github.getCore().info(`Updating version files to: ${version}`);
+            try {
+                const filesToUpdate = this.getVersionFilesToUpdate();
+                for (const file of filesToUpdate) {
+                    yield this.updateVersionFile(file.name, version, branches.current, file.required);
+                }
+                this.github.getCore().info('Version files updated successfully');
+            }
+            catch (error) {
+                this.github.getCore().info(`Error updating version files: ${error}`);
+                throw error;
+            }
+        });
+    }
     getVersionFilesToUpdate() {
         return Object.values(exports.VERSION_FILES);
     }
@@ -32994,9 +33205,6 @@ class VersionManagerService {
                 }
             }
         });
-    }
-    createCommitVersionMessage(fileName, version) {
-        return `chore: update ${fileName} version to ${version}`;
     }
     getUpdatedFileContent(fileName, content, version) {
         const updateStrategy = this.getUpdateStrategy(fileName);
@@ -33032,12 +33240,8 @@ class VersionManagerService {
             throw new Error(`Failed to update mta.yaml version: ${error}`);
         }
     }
-    getFileSha(filePath, branch) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const instance = this.github.getOctokitInstance();
-            const response = yield instance.repos.getContent(Object.assign(Object.assign({}, this.github.client.context.repo), { path: filePath, ref: branch }));
-            return response.data.sha;
-        });
+    createCommitVersionMessage(fileName, version) {
+        return `chore: update ${fileName} version to ${version}`;
     }
 }
 exports.VersionManagerService = VersionManagerService;
